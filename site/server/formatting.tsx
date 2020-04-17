@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio"
-const urlSlug = require("url-slug")
+import urlSlug from "url-slug"
 import * as _ from "lodash"
 import * as React from "react"
 import * as ReactDOMServer from "react-dom/server"
@@ -150,20 +150,26 @@ export async function formatWordpressPost(
     // Related charts
     // Mimicking SSR output of additional information block from PHP
     if (post.relatedCharts && post.relatedCharts.length !== 0) {
-        const $firstHeading = $(
-            "body > h2:first-of-type, body > h3:first-of-type"
-        ).first()
-        $firstHeading.before(`
-            <block type="additional-information">
-                <content>
-                    <h3>All our charts on ${post.title}</h3>
-                    ${ReactDOMServer.renderToStaticMarkup(
-                        <div>
-                            <RelatedCharts charts={post.relatedCharts} />
-                        </div>
-                    )}
-                </content>
-            </block>`)
+        const allCharts = `
+        <block type="additional-information">
+            <content>
+                <h3>All our charts on ${post.title}</h3>
+                ${ReactDOMServer.renderToStaticMarkup(
+                    <div>
+                        <RelatedCharts charts={post.relatedCharts} />
+                    </div>
+                )}
+            </content>
+        </block>
+        `
+        const $summary = $(".wp-block-owid-summary")
+        if ($summary.length !== 0) {
+            $summary.after(allCharts)
+        } else {
+            $("body > h2:first-of-type, body > h3:first-of-type")
+                .first()
+                .before(allCharts)
+        }
     }
 
     // SSR rendering of Gutenberg blocks, before hydration on client
@@ -228,10 +234,12 @@ export async function formatWordpressPost(
     // Any remaining iframes: ensure https embeds
     if (HTTPS_ONLY) {
         for (const iframe of $("iframe").toArray()) {
-            iframe.attribs["src"] = iframe.attribs["src"].replace(
-                "http://",
-                "https://"
-            )
+            if (iframe.attribs["src"]) {
+                iframe.attribs["src"] = iframe.attribs["src"].replace(
+                    "http://",
+                    "https://"
+                )
+            }
         }
     }
 
@@ -248,6 +256,14 @@ export async function formatWordpressPost(
         $table.after($div)
         $div.append($table)
     }
+
+    // Make sticky-right layout the default for columns
+    $(".wp-block-columns").each((_, columns) => {
+        const $columns = $(columns)
+        if (columns.attribs.class === "wp-block-columns") {
+            $columns.addClass("is-style-sticky-right")
+        }
+    })
 
     // Image processing
     // Assumptions:
@@ -353,9 +369,9 @@ export async function formatWordpressPost(
         // Add deep link for headings not contained in <a> tags already
         // (e.g. within a prominent link block)
         if (
-            $heading.closest(".wp-block-owid-prominent-link").length === 0 && // already wrapped in <a>
-            $heading.closest(".wp-block-owid-additional-information").length === // prioritize clean SSR of AdditionalInformation
-                0
+            !$heading.closest(".wp-block-owid-prominent-link").length && // already wrapped in <a>
+            !$heading.closest(".wp-block-owid-additional-information").length && // prioritize clean SSR of AdditionalInformation
+            !$heading.closest(".wp-block-help").length
         ) {
             $heading.prepend(`<a class="deep-link" href="#${slug}"></a>`)
         }
